@@ -166,8 +166,11 @@ fun List<String>.commandOutput(): String {
 }
 
 val authorMatch = Regex("^author\\s+(.+)$")
-fun blameFor(file: String, lines: IntRange): Set<String> =
-    listOf("git", "blame", "-L", "${lines.start},${lines.endInclusive}", "-p", file)
+fun blameFor(file: String, lines: IntRange): Set<String> {
+    require(File(file).exists()) {
+        "File $file doesn't exist, cannot blame anything"
+    }
+    return listOf("git", "blame", "-L", "${lines.start},${lines.endInclusive}", "-p", file)
         .commandOutput().lines()
         .flatMap { line -> authorMatch.matchEntire(line)?.destructured?.toList() ?: emptyList() }
         .toSet()
@@ -175,6 +178,7 @@ fun blameFor(file: String, lines: IntRange): Set<String> =
         ?: throw IllegalStateException(
             "Unable to assign anything with: 'git blame -L ${lines.start},${lines.endInclusive} -p $file'"
         )
+}
 
 data class QAInfoForChecker(
     override val checker: String,
@@ -183,6 +187,9 @@ data class QAInfoForChecker(
     override val details: String = "",
     private val blamed: Set<String>? = null,
 ) : QAInfo {
+    init {
+        require (File(file).exists()) { "File $file doesn't exist" }
+    }
     override val blamedTo: Set<String> = blamed ?: blameFor(file, lines)
 }
 
@@ -279,14 +286,12 @@ class SpotBugsQAInfoExtractor(root: org.w3c.dom.Element) : QAInfoContainer by (
                 val category = bugDescriptor["category"].takeUnless { it == "STYLE" } ?: "UNSAFE"
                 val startLine = sourceLineDescriptor["start", "1"].toInt()
                 val endLine = sourceLineDescriptor["end", Integer.MAX_VALUE.toString()].toInt()
-                val actualFile = sourceLineDescriptor.get("relSourcepath") {
-                    val sourcePath = sourceLineDescriptor["sourcepath"]
-                    val potentialFiles = sourceDirs.map { "$it${File.separator}$sourcePath" }
-                    val existingCandidates = potentialFiles.filter { File(it).exists() }
-                    existingCandidates.firstOrNull() ?: "".also {
-                        logger.warn("Skipping file $sourcePath, as none of ${potentialFiles.toList()} exists")
-                    }
+                val candidateFile = sourceLineDescriptor.get("relSourcepath") {
+                    sourceLineDescriptor["sourcepath"]
                 }
+                val actualFile = project.rootDir.walkTopDown()
+                    .map { it.absolutePath }
+                    .first { candidateFile in it }
                 actualFile.takeIf { it.isNotBlank() }?.let {
                     QAInfoForChecker(
                         "Potential bugs",
