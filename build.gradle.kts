@@ -289,7 +289,7 @@ class SpotBugsQAInfoExtractor(root: org.w3c.dom.Element) : QAInfoContainer by (
                 val candidateFile = sourceLineDescriptor.get("relSourcepath") {
                     sourceLineDescriptor["sourcepath"]
                 }
-                val actualFile = project.rootDir.walkTopDown()
+                val actualFile = sourceDirs.flatMap { File(it).walkTopDown() }
                     .map { it.absolutePath }
                     .first { candidateFile in it }
                 actualFile.takeIf { it.isNotBlank() }?.let {
